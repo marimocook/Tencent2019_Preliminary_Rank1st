@@ -28,9 +28,11 @@ def parse_rawdata():
         df[f]=items
         df[f]=df[f].astype(int)
     df['ad_size']=df['ad_size'].apply(lambda x:' '.join([str(int(float(y))) for y in str(x).split(',')]))    
+    #为什么要float再int？Get a ValueError if you pass a string representation of a float into int, or a string representation of anything but an integer (including empty string)
+    #https://stackoverflow.com/questions/1841565/valueerror-invalid-literal-for-int-with-base-10
     df.to_pickle('data/testA/ad_static_feature.pkl')
     del df
-    gc.collect()
+    gc.collect() #删去多余缓存，gc=gabage collector
     ##############################################################################
     #用户信息
     df =pd.read_csv('data/testA/user_data', sep='\t', 
@@ -59,7 +61,7 @@ def construct_log():
     wday=[]
     hour=[]
     minute=[]
-    for x in tqdm(train_df['request_timestamp'].values,total=len(train_df)):
+    for x in tqdm(train_df['request_timestamp'].values,total=len(train_df)): #tqdm的作用：100%|██████████| 10000/10000 [00:00<00:00, 138790.03it/s]
         localtime=time.localtime(x)
         wday.append(localtime[6])
         hour.append(localtime[3])
@@ -67,7 +69,7 @@ def construct_log():
     train_df['wday']=wday
     train_df['hour']=hour
     train_df['minute']=minute
-    train_df['period_id']=train_df['hour']*2+train_df['minute']//30
+    train_df['period_id']=train_df['hour']*2+train_df['minute']//30  #minute//30结果为0或1，hour需要*2来区分11+1和12+0，也就是说period_id设计每半小时为一个period,返回值0-47
     dev_df=train_df[train_df['request_day']==17974]
     del dev_df['period_id']
     del dev_df['minute']
@@ -92,30 +94,30 @@ def extract_setting():
         for line in f:
             line=line.strip().split('\t')
             try:
-                if line[1]=='20190230000000':
+                if line[1]=='20190230000000':  #line[1]：update_time??他怎么知道有这个值的??EDA吧，to_datetime会报错
                     line[1]='20190301000000'
                 if line[1]!='0':
-                    request_day=time.mktime(time.strptime(line[1], '%Y%m%d%H%M%S'))//(3600*24)
+                    request_day=time.mktime(time.strptime(line[1], '%Y%m%d%H%M%S'))//(3600*24) #mktime把20190230格式转换成浮点秒数
                 else:
                     request_day=0
             except:
                 print(line[1])
 
             if len(aids)==0:
-                aids.append([int(line[0]),0,"NaN","NaN"])
-            elif aids[-1][0]!=int(line[0]):
-                for i in range(max(17930,aids[-1][1]+1),17975):
+                aids.append([int(line[0]),0,"NaN","NaN"]) #line[0]：aid
+            elif aids[-1][0]!=int(line[0]): #如果操作从adY换成了adX
+                for i in range(max(17930,aids[-1][1]+1),17975): # aid X从记录变更的一天到下一记录变更天之前都有对应设置X
                     aids.append(aids[-1].copy())
                     aids[-1][1]=i
                 aids.append([int(line[0]),0,"NaN","NaN"])               
-            elif request_day!=aids[-1][1]:
+            elif request_day!=aids[-1][1]: #同一个ad的情况下，第二天又改变了广告设置
                 for i in range(max(17930,aids[-1][1]+1),int(request_day)):
                     aids.append(aids[-1].copy())
                     aids[-1][1]=i                
                 aids.append(aids[-1].copy())
                 aids[-1][1]=int(request_day)
-            if line[3]=='3':
-                aids[-1][2]=line[4]
+            if line[3]=='3':          #line[3]: updated_key   #1-广告状态，2-出价，3-人群定向，4-广告时段设置
+                aids[-1][2]=line[4]   #line[4]: updated_value
             if line[3]=='4':
                 aids[-1][3]=line[4]
     ad_df=pd.DataFrame(aids)
@@ -128,8 +130,8 @@ def construct_train_data(train_df):
     tmp = pd.DataFrame(train_df.groupby(['aid','request_day'])['bid'].nunique()).reset_index()
     tmp.columns=['aid','request_day','bid_unique']
     train_df=train_df.merge(tmp,on=['aid','request_day'],how='left')
-    tmp = pd.DataFrame(train_df.groupby(['aid','request_day']).size()).reset_index()
-    tmp_1 = pd.DataFrame(train_df.groupby(['aid','request_day'])['bid'].mean()).reset_index()
+    tmp = pd.DataFrame(train_df.groupby(['aid','request_day']).size()).reset_index() #日曝光
+    tmp_1 = pd.DataFrame(train_df.groupby(['aid','request_day'])['bid'].mean()).reset_index() #平均出价
     tmp.columns=['aid','request_day','imp']
     del train_df['bid']
     tmp_1.columns=['aid','request_day','bid']
